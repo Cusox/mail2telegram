@@ -71,6 +71,7 @@ function handleStartCommand(env: Environment): TelegramMessageHandler {
         }
         const params: Telegram.SendMessageParams = {
             chat_id: msg.chat.id,
+            message_thread_id: msg.message_thread_id,
             text: first
                 ? 'Welcome! Open the Mini App to finish binding this bot.'
                 : 'Open the mail Mini App to browse history, manage lists and settings.',
@@ -118,30 +119,29 @@ async function handleReplyEmailCommand(message: Telegram.Message, env: Environme
     const reply = async (text: string) => {
         await api.sendMessage({
             chat_id: message.chat.id,
+            message_thread_id: message.message_thread_id,
             reply_parameters: {
                 message_id: message.message_id,
             },
             text,
         });
     };
-    if (!RESEND_API_KEY) {
-        logTelegram('reply_email.disabled', { chatId: message.chat.id, messageId: message.message_id });
-        await reply('Resend API is not enabled.');
-        return;
-    }
-    if (!message.text) {
-        await reply('Please provide a message to resend.');
-        return;
-    }
     try {
         const messageID = message.reply_to_message?.message_id;
         if (!messageID) {
-            await reply('Please reply to a message to resend.');
             return;
         }
         const emailId = await dao.getEmailIdByTelegramMessage(message.chat.id, messageID);
         if (!emailId) {
-            await reply('Message not found.');
+            return;
+        }
+        if (!RESEND_API_KEY) {
+            logTelegram('reply_email.disabled', { chatId: message.chat.id, messageId: message.message_id });
+            await reply('Resend API is not enabled.');
+            return;
+        }
+        if (!message.text) {
+            await reply('Please provide a message to resend.');
             return;
         }
         const mail = await dao.getEmail(emailId);
@@ -178,25 +178,27 @@ async function telegramCommandHandler(message: Telegram.Message, env: Environmen
         logTelegram('message.unauthorized_chat', { chatId: message.chat.id, messageId: message.message_id });
         return;
     }
-    if (message?.reply_to_message) {
+    const text = message.text || '';
+    if (text.startsWith('/')) {
+        const command = /^\/start(?:@([a-zA-Z0-9_]+))?(?:\s|$)/.exec(text);
+        if (!command) {
+            return;
+        }
+        if (command[1]) {
+            const bot = await createTelegramBotAPI(env.TELEGRAM_TOKEN).getMeWithReturns();
+            if (!bot.ok || bot.result.username?.toLowerCase() !== command[1].toLowerCase()) {
+                return;
+            }
+        }
+        logTelegram('command.start', { chatId: message.chat.id, messageId: message.message_id });
+        await handleStartCommand(env)(message);
+        return;
+    }
+    if (message.reply_to_message) {
         await handleReplyEmailCommand(message, env);
         return;
     }
-    const text = message.text || '';
-    if (!text.startsWith('/')) {
-        // Plain chat text is not a command; stay quiet instead of answering
-        // every message with the Mini App card.
-        logTelegram('message.ignored', { chatId: message.chat.id, messageId: message.message_id });
-        return;
-    }
-    const command = text.split(' ')[0].substring(1);
-    if (command === 'start') {
-        logTelegram('command.start', { chatId: message.chat.id, messageId: message.message_id });
-    } else {
-        // /start is the only command; anything else just opens the Mini App.
-        logTelegram('command.fallback', { command, chatId: message.chat.id, messageId: message.message_id });
-    }
-    await handleStartCommand(env)(message);
+    logTelegram('message.ignored', { chatId: message.chat.id, messageId: message.message_id });
 }
 
 async function telegramCallbackHandler(callback: Telegram.CallbackQuery, env: Environment): Promise<void> {

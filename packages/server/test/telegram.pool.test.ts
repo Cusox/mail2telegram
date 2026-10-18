@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Dao } from '../src/db';
 import { loadSettings, saveSettings } from '../src/db/settings';
 import { renderEmailDebugMode } from '../src/mail';
+import { sendMailToTelegram } from '../src/handler/email';
 import { telegramWebhookHandler } from '../src/telegram';
 import { mockTelegramFetch, resetStorage, testEnv } from './helpers';
 
@@ -172,5 +173,97 @@ describe('debug dump redaction', () => {
             expect(rendered.text).not.toContain('QUERY_SECRET');
             expect(rendered.text).toContain('api.example');
         }
+    });
+});
+
+function messageUpdate(text: string | undefined, replyId?: number): Request {
+    const chat = { id: -100111, type: 'supergroup' as const };
+    return new Request('https://worker.test/telegram/test-token/webhook', {
+        method: 'POST',
+        body: JSON.stringify({
+            update_id: 1,
+            message: {
+                message_id: 80,
+                date: 0,
+                chat,
+                text,
+                message_thread_id: 123,
+                is_topic_message: true,
+                ...(replyId === undefined
+                    ? {}
+                    : {
+                          reply_to_message: { message_id: replyId, date: 0, chat },
+                      }),
+            },
+        } satisfies Telegram.Update),
+    });
+}
+
+describe('telegram group messages', () => {
+    it.each([undefined, 'test-key'])('ignores unrelated replies with Resend key %s', async key => {
+        const configuration = testEnv({ TELEGRAM_ID: '-100111', RESEND_API_KEY: key });
+        for (const replyId of [undefined, 77, 123]) {
+            await telegramWebhookHandler(messageUpdate('hello', replyId), configuration);
+            await telegramWebhookHandler(messageUpdate(undefined, replyId), configuration);
+        }
+        expect(telegram.calls).toBe(0);
+    });
+
+    it('only checks reply configuration for mapped notifications and preserves the topic', async () => {
+        const id = await seedEmail();
+        await new Dao(db).saveTelegramMessage(77, -100111, id);
+        await telegramWebhookHandler(messageUpdate('reply', 77), testEnv({ TELEGRAM_ID: '-100111' }));
+        expect(telegram.calls).toBe(1);
+        expect(JSON.parse(telegram.bodies[0])).toMatchObject({
+            text: 'Resend API is not enabled.',
+            message_thread_id: 123,
+            reply_parameters: { message_id: 80 },
+        });
+    });
+
+    it.each(['/unknown', '/unknown@OtherBot', '/starter'])('ignores %s even when replying to mail', async text => {
+        const id = await seedEmail();
+        await new Dao(db).saveTelegramMessage(77, -100111, id);
+        await telegramWebhookHandler(messageUpdate(text, 77), testEnv({ TELEGRAM_ID: '-100111' }));
+        expect(telegram.calls).toBe(0);
+    });
+
+    it('ignores start addressed to another bot', async () => {
+        await telegramWebhookHandler(messageUpdate('/start@OtherBot', 123), testEnv({ TELEGRAM_ID: '-100111' }));
+        expect(telegram.calls).toBe(1);
+        expect(telegram.bodies.some(body => body.includes('chat_id'))).toBe(false);
+    });
+
+    it.each(['/start', '/start@mailbot payload'])('handles %s in the originating topic', async text => {
+        await telegramWebhookHandler(messageUpdate(text, 123), testEnv({ TELEGRAM_ID: '-100111' }));
+        expect(JSON.parse(telegram.bodies[telegram.bodies.length - 1])).toMatchObject({
+            chat_id: -100111,
+            message_thread_id: 123,
+        });
+    });
+});
+
+describe('telegram notification topics', () => {
+    it.each([undefined, '', '123'])('sends notifications with topic %s', async topic => {
+        const mail = (await new Dao(db).getEmail(await seedEmail()))!;
+        const result = await sendMailToTelegram(mail, testEnv({ TELEGRAM_ID: '-100111', TELEGRAM_THREAD_ID: topic }));
+        expect(result).toEqual([{ chatId: '-100111', messageId: 1001 }]);
+        expect(JSON.parse(telegram.bodies[0]).message_thread_id).toBe(topic ? 123 : undefined);
+    });
+
+    it.each(['0', '-1', '1.5', 'abc', '9007199254740992'])('rejects invalid topic %s', async topic => {
+        const mail = (await new Dao(db).getEmail(await seedEmail()))!;
+        await expect(sendMailToTelegram(mail, testEnv({ TELEGRAM_THREAD_ID: topic }))).rejects.toThrow(
+            'positive integer',
+        );
+        expect(telegram.calls).toBe(0);
+    });
+
+    it('does not fall back to General when Telegram rejects the topic', async () => {
+        const mail = (await new Dao(db).getEmail(await seedEmail()))!;
+        telegram.rejectNext();
+        const result = await sendMailToTelegram(mail, testEnv({ TELEGRAM_ID: '-100111', TELEGRAM_THREAD_ID: '123' }));
+        expect(result).toEqual([]);
+        expect(telegram.calls).toBe(1);
     });
 });

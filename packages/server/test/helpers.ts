@@ -113,6 +113,12 @@ export function mockTelegramFetch(): {
             reject = false;
             return Response.json({ ok: false, description: 'Bad Request: bad secret token' }, { status: 400 });
         }
+        if (String(input).endsWith('/getMe')) {
+            return Response.json({
+                ok: true,
+                result: { id: 123, is_bot: true, first_name: 'Mail', username: 'MailBot' },
+            });
+        }
         return Response.json({ ok: true, result: { message_id: 1000 + calls } });
     }) as typeof fetch;
     return {

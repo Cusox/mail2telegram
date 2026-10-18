@@ -112,6 +112,7 @@ pnpm run deploy   # 应用 D1 迁移，构建 Mini App，部署 Worker
 | KEY              | 说明                                                                                                  |
 |:-----------------|:------------------------------------------------------------------------------------------------------|
 | `TELEGRAM_ID`    | 必填。推送目标 Chat ID，多个用英文逗号分隔。可通过 `@userinfobot` 获取，群组以 `-100` 开头。            |
+| `TELEGRAM_THREAD_ID` | 可选。通知目标话题的正整数 ID（`message_thread_id`）。留空保持默认投递。同一个值应用于全部目标，适用于单个话题群；回信反馈和 /start 响应留在触发消息的话题中。 |
 | `TELEGRAM_TOKEN` | 必填。Telegram Bot Token，例如 `7123456780:AAjkLAbvSgDdfsDdfsaSK0`。                                   |
 | `DOMAIN`         | 可选。Worker 域名，例如 `project_name.user_name.workers.dev`，用于 Webhook 与 Mini App 链接。不设置时，Worker 会在运行安装步骤（`/init`）时自动发现并记住自己的域名（存入数据库）。仅当需要让 Mini App 运行在与安装时不同的域名上时才需要设置。 |
 | `WEB_PASSWORD`   | 可选。在 Telegram 之外用普通浏览器打开 Mini App 时所需的密码。留空或不设置则只允许通过 Telegram Mini App 访问。 |

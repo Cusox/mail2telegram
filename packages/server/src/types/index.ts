@@ -135,6 +135,7 @@ export interface MailStatusRecord {
 export interface Environment {
     TELEGRAM_TOKEN: string;
     TELEGRAM_ID: string;
+    TELEGRAM_THREAD_ID?: string;
     /**
      * Worker host used for webhook and Mini App links. Optional to configure:
      * when unset, the fetch handler fills it from each request's host and

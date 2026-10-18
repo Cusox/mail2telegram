@@ -220,7 +220,11 @@ export interface TelegramNotification {
 }
 
 export async function sendMailToTelegram(mail: EmailRecord, env: Environment): Promise<TelegramNotification[]> {
-    const { TELEGRAM_TOKEN, TELEGRAM_ID } = env;
+    const { TELEGRAM_TOKEN, TELEGRAM_ID, TELEGRAM_THREAD_ID } = env;
+    const threadId = TELEGRAM_THREAD_ID?.trim() ? Number(TELEGRAM_THREAD_ID) : undefined;
+    if (threadId !== undefined && (!Number.isSafeInteger(threadId) || threadId <= 0)) {
+        throw new Error('TELEGRAM_THREAD_ID must be a positive integer');
+    }
     // The email context has no request, so without a DOMAIN variable the host
     // falls back to the one remembered by `/init`. Empty means it was never
     // discovered and renderEmailListMode omits the Mini App button.
@@ -245,11 +249,20 @@ export async function sendMailToTelegram(mail: EmailRecord, env: Environment): P
             const msg = await api.sendMessageWithReturns({
                 chat_id: id,
                 ...req,
+                message_thread_id: threadId,
             });
+            if (!msg.ok) {
+                throw new Error(`Telegram notification failed: ${JSON.stringify(msg)}`);
+            }
             return { chatId: id, messageId: msg.result.message_id };
         }),
     );
     // One failing chat must not lose the message ids of the others.
+    for (const outcome of outcomes) {
+        if (outcome.status === 'rejected') {
+            console.error('[email] telegram.notify.failed', mail.id, outcome.reason);
+        }
+    }
     return outcomes
         .filter((outcome): outcome is PromiseFulfilledResult<TelegramNotification> => outcome.status === 'fulfilled')
         .map(outcome => outcome.value);

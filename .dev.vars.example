@@ -7,6 +7,7 @@ TELEGRAM_TOKEN=
 
 # Required: destination chat ids (comma separated). Get yours from @userinfobot.
 TELEGRAM_ID=
+TELEGRAM_THREAD_ID=
 
 # Optional: password for opening the Mini App in a plain browser outside Telegram.
 # Leave empty to allow only the Telegram Mini App.
