@@ -244,6 +244,23 @@ describe('telegram group messages', () => {
 });
 
 describe('telegram notification topics', () => {
+    it('only adds the topic to the group when destinations include private chats', async () => {
+        const mail = (await new Dao(db).getEmail(await seedEmail()))!;
+        const result = await sendMailToTelegram(
+            mail,
+            testEnv({
+                TELEGRAM_ID: '1001, -100111, 1002',
+                TELEGRAM_THREAD_ID: '123',
+            }),
+        );
+        expect(result).toHaveLength(3);
+        const messages = telegram.bodies.map(body => JSON.parse(body));
+        expect(messages.find(message => message.chat_id === '-100111').message_thread_id).toBe(123);
+        for (const id of ['1001', '1002']) {
+            expect(messages.find(message => message.chat_id === id)).not.toHaveProperty('message_thread_id');
+        }
+    });
+
     it.each([undefined, '', '123'])('sends notifications with topic %s', async topic => {
         const mail = (await new Dao(db).getEmail(await seedEmail()))!;
         const result = await sendMailToTelegram(mail, testEnv({ TELEGRAM_ID: '-100111', TELEGRAM_THREAD_ID: topic }));

@@ -249,7 +249,7 @@ export async function sendMailToTelegram(mail: EmailRecord, env: Environment): P
             const msg = await api.sendMessageWithReturns({
                 chat_id: id,
                 ...req,
-                message_thread_id: threadId,
+                message_thread_id: /^-\d+$/.test(id) ? threadId : undefined,
             });
             if (!msg.ok) {
                 throw new Error(`Telegram notification failed: ${JSON.stringify(msg)}`);
